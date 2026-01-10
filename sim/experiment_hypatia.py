@@ -34,6 +34,14 @@ except Exception:  # pragma: no cover
     TraceWriter = None  # type: ignore
 
 
+def tamper(payload: bytes, rng: random.Random) -> bytes:
+    if not payload:
+        return payload
+    idx = rng.randrange(len(payload))
+    flipped = (payload[idx] ^ 0x01).to_bytes(1, "little")
+    return payload[:idx] + flipped + payload[idx + 1 :]
+
+
 @dataclass
 class Metrics:
     injected: int = 0
@@ -169,6 +177,11 @@ def run_trial(
             )
 
             receipt = scrap.make_receipt(req, b"result")
+            payload = receipt
+            if attack_p > 0 and rng.random() < attack_p:
+                payload = tamper(receipt, rng)
+                metrics.on_tamper(payload)
+
             job_inject_t[job_id] = hypatia.now
             job_expected[job_id] = receipt
             job_deadline[job_id] = hypatia.now + deadline_steps
@@ -178,7 +191,7 @@ def run_trial(
                 "job_id": job_id,
                 "ttl_steps": ttl_steps,
             }
-            transport.send(src=src, dst=dst, payload=receipt, meta=meta)
+            transport.send(src=src, dst=dst, payload=payload, meta=meta)
 
             if trace:
                 trace.write(hypatia.now, "inject", src=src.decode(), dst=dst.decode(), job_id=job_id, size=len(receipt))
