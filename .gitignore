@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.pyo
+*.bak
+.venv/
+scrap_hypatia/
+
+# Runs / outputs
+runs/
+viz/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Rust (submodule build artifacts)
+**/target/

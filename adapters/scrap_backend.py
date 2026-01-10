@@ -1,13 +1,31 @@
-﻿from pathlib import Path
+﻿import os
+import platform
+from pathlib import Path
 
 def get_backend():
+    """Return a SCRAP client implementation.
+
+    Default behavior:
+      - Prefer the real CLI-backed implementation if the private repo is present
+        *and* we're on Windows (because the built artifact is a .exe in your repo).
+      - Otherwise fall back to the pure-Python stub.
+
+    Override behavior with:
+      - SCRAP_BACKEND=stub  -> always use stub
+      - SCRAP_BACKEND=real  -> force real (will raise if not available)
+    """
+
+    forced = os.environ.get("SCRAP_BACKEND", "").strip().lower()
+    if forced == "stub":
+        from .scrap_stub import ScrapClient
+        return ScrapClient()
+
     priv = Path(__file__).resolve().parents[1] / "deps" / "scap_private"
-    try:
-        if priv.exists() and any(priv.iterdir()):
-            from .scap_real import ScrapClient
-            return ScrapClient()
-    except Exception:
-        pass
+    is_windows = platform.system().lower().startswith("win")
+
+    if forced == "real" or (is_windows and priv.exists() and any(priv.iterdir())):
+        from .scap_real import ScrapClient
+        return ScrapClient()
 
     from .scrap_stub import ScrapClient
     return ScrapClient()

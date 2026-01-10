@@ -15,4 +15,16 @@ class ScrapClient:
         return b"STUB_RCPT:" + h
 
     def verify_receipt(self, receipt, req):
-        return receipt.startswith(b"STUB_RCPT:")
+        expected = self.make_receipt(req, b"result")
+        return receipt == expected
+
+
+
+    def admit(self, req, meta=None):
+        return True, ""
+
+
+
+    def admit(self, req, meta=None):
+        return True, ""
+
