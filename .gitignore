@@ -5,7 +5,6 @@ __pycache__/
 *.pyo
 *.bak
 .venv/
-scrap_hypatia/
 
 # Runs / outputs
 runs/

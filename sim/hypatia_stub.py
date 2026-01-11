@@ -21,10 +21,12 @@ Additional helpers (optional but useful for experiments/visualization):
 
 Model sketch:
 
-- N satellites on a ring with slow rotation (good enough to look "orbital")
+- LEO satellites sampled from real TLEs when provided (synthetic fallback)
+- Satellites move with mean motion; simple 2D projection for visualization
 - Links are time-varying:
     - always-on nearest-neighbor ring links
     - a rotating "window" of additional crosslinks that turns on/off with time
+    - optional extra intra-constellation links
 - Packets are store-and-forward at the network boundary:
     - if a path exists at time t, deliver (with optional congestion/outage drop)
     - if no path, keep queued until TTL expires
@@ -39,6 +41,7 @@ from dataclasses import dataclass
 from typing import Callable, Deque, Dict, Iterable, List, Optional, Tuple
 
 from scrap_hypatia.adapter import HypatiaPacket
+from sim.leo_data import SatelliteRecord, sample_synthetic_leo
 
 
 NodeId = bytes
@@ -59,19 +62,27 @@ class HypatiaStub:
         rng: Optional[random.Random] = None,
         outage_p: float = 0.0,
         congestion_p: float = 0.0,
-        n_sats: int = 20,
+        n_sats: int = 200,
+        n_ground: int = 20,
+        satellites: Optional[List[SatelliteRecord]] = None,
         dt_s: float = 1.0,
         ttl_steps: int = 30,
         crosslink_window: int = 5,
         crosslink_period: int = 12,
         ring_period: int = 6,
         ring_duty: float = 0.7,
+        constellation_crosslinks: int = 1,
     ):
         self.rng = rng or random.Random()
         self.outage_p = float(outage_p)
         self.congestion_p = float(congestion_p)
 
-        self.n_sats = int(n_sats)
+        if satellites is None:
+            satellites = sample_synthetic_leo(n_sats=n_sats, rng=self.rng)
+
+        self.satellites = satellites
+        self.n_sats = len(satellites)
+        self.n_ground = int(n_ground)
         self.dt_s = float(dt_s)
         self.default_ttl_steps = int(ttl_steps)
 
@@ -82,6 +93,7 @@ class HypatiaStub:
         # Ring links are intermittent to create meaningful queueing/TTFS.
         self.ring_period = int(ring_period)
         self.ring_duty = float(ring_duty)
+        self.constellation_crosslinks = int(constellation_crosslinks)
 
         self._t: int = 0
         self._on_delivery: List[Callable[[HypatiaPacket], None]] = []
@@ -89,7 +101,16 @@ class HypatiaStub:
         self._queue: Deque[_Queued] = deque()
 
         # Pre-create node IDs for stable ordering
-        self.nodes: List[NodeId] = [f"sat-{i}".encode() for i in range(self.n_sats)] + [b"ground"]
+        self.sat_nodes: List[NodeId] = [f"sat-{i}".encode() for i in range(self.n_sats)]
+        self.ground_nodes: List[NodeId] = [f"ground-{i}".encode() for i in range(self.n_ground)]
+        self.nodes: List[NodeId] = self.sat_nodes + self.ground_nodes
+
+        self._constellations: Dict[str, List[int]] = {}
+        for idx, sat in enumerate(self.satellites):
+            self._constellations.setdefault(sat.constellation, []).append(idx)
+
+        self._min_alt_km = min(sat.altitude_km for sat in self.satellites)
+        self._max_alt_km = max(sat.altitude_km for sat in self.satellites)
 
     # ---------- Event hooks ----------
     def on_delivery(self, cb: Callable[[HypatiaPacket], None]) -> None:
@@ -115,14 +136,22 @@ class HypatiaStub:
         """Return normalized (x,y) positions in [-1,1] for animation."""
         positions: Dict[str, Tuple[float, float]] = {}
 
-        # Satellites on ring, slowly rotating
-        omega = 2 * math.pi / max(1, self.crosslink_period * 4)
-        for i in range(self.n_sats):
+        # Satellites on ring, using real mean motion when available
+        for i, sat in enumerate(self.satellites):
+            mean_motion = max(0.01, sat.mean_motion_rev_per_day)
+            omega = mean_motion * 2 * math.pi / max(1.0, 86400.0 / self.dt_s)
             theta = 2 * math.pi * (i / self.n_sats) + omega * self._t
-            positions[f"sat-{i}"] = (math.cos(theta), math.sin(theta))
+            inclination = math.radians(sat.inclination_deg)
 
-        # Ground at bottom
-        positions["ground"] = (0.0, -1.15)
+            alt_span = max(1e-3, self._max_alt_km - self._min_alt_km)
+            radius = 1.0 + 0.08 * (sat.altitude_km - self._min_alt_km) / alt_span
+
+            positions[f"sat-{i}"] = (radius * math.cos(theta), radius * math.sin(theta) * math.cos(inclination))
+
+        # Ground stations around a lower ring
+        for i in range(self.n_ground):
+            theta = 2 * math.pi * (i / max(1, self.n_ground))
+            positions[f"ground-{i}"] = (1.05 * math.cos(theta), -1.2 + 0.05 * math.sin(theta))
         return positions
 
     def get_active_links(self) -> List[Tuple[str, str]]:
@@ -156,11 +185,14 @@ class HypatiaStub:
                 b = f"sat-{(i + 1) % self.n_sats}".encode()
                 edges.append((a, b))
 
-        # Ground station has a contact "window" with a subset of sats
+        # Ground stations have contact windows with subsets of sats
         start = (self._t // max(1, self.crosslink_period)) % self.n_sats
-        for k in range(self.crosslink_window):
-            s = f"sat-{(start + k) % self.n_sats}".encode()
-            edges.append((s, b"ground"))
+        ground_offset = max(1, self.n_sats // max(1, self.n_ground))
+        for g_idx, ground in enumerate(self.ground_nodes):
+            g_start = (start + g_idx * ground_offset) % self.n_sats
+            for k in range(self.crosslink_window):
+                s = f"sat-{(g_start + k) % self.n_sats}".encode()
+                edges.append((s, ground))
 
         # Add rotating crosslinks (a simple proxy for changing geometry)
         # Connect sats i -> i+W for a window.
@@ -170,6 +202,22 @@ class HypatiaStub:
             a = f"sat-{i}".encode()
             b = f"sat-{(i + w) % self.n_sats}".encode()
             edges.append((a, b))
+
+        # Extra intra-constellation links to mimic operator-owned crosslinks
+        if self.constellation_crosslinks > 0:
+            for members in self._constellations.values():
+                if len(members) < 2:
+                    continue
+                for extra in range(self.constellation_crosslinks):
+                    offset = extra + 1
+                    for idx in range(len(members)):
+                        a_idx = members[idx]
+                        b_idx = members[(idx + offset) % len(members)]
+                        phase = (self._t + a_idx + extra) % max(1, self.ring_period)
+                        if phase < int(self.ring_duty * max(1, self.ring_period)):
+                            a = f"sat-{a_idx}".encode()
+                            b = f"sat-{b_idx}".encode()
+                            edges.append((a, b))
 
         return edges
 
