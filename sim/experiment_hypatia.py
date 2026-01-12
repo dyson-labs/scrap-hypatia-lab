@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import random
+from pathlib import Path
 from dataclasses import dataclass, field
 from statistics import mean
 from typing import Dict, Optional
@@ -251,6 +252,8 @@ def run_trial(
 
 
 def main():
+    default_tle = Path("data/tle_leo_sample.txt")
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--steps", type=int, default=60)
     ap.add_argument("--inject-per-step", type=int, default=4)
@@ -260,7 +263,14 @@ def main():
     ap.add_argument("--n-ground", type=int, default=20)
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--trace", type=str, default=None, help="Write JSONL trace for animation")
-    ap.add_argument("--tle-source", type=str, default=None, help="TLE file path or URL for real data")
+
+    ap.add_argument(
+        "--tle-source",
+        type=str,
+        default=str(default_tle) if default_tle.exists() else None,
+        help="TLE file path or URL for real data",
+    )
+
     ap.add_argument("--attack", type=float, default=None, help="Run a single scenario with this attack rate")
     ap.add_argument("--outage", type=float, default=None, help="Run a single scenario with this outage rate")
     ap.add_argument("--congestion", type=float, default=None, help="Run a single scenario with this congestion rate")
