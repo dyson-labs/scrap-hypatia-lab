@@ -24,7 +24,7 @@ from typing import Dict, Optional
 from adapters.scrap_backend import get_backend
 from scrap_hypatia.adapter import HypatiaTransport
 from sim.hypatia_stub import HypatiaStub
-from sim.leo_data import load_tle_catalog, sample_leo_constellations
+from sim.leo_data import is_placeholder_source, load_tle_catalog, sample_leo_constellations
 
 
 try:
@@ -148,7 +148,7 @@ def run_trial(
             job_deadline.pop(int(job_id), None)
 
     for ground in ground_nodes:
-        transport.register_receiver(ground, on_rx)
+        transport.recv(ground, on_rx)
 
     # --- main simulation loop ---
     job_id = 0
@@ -253,6 +253,7 @@ def run_trial(
 
 def main():
     default_tle = Path("data/tle_leo_sample.txt")
+    default_source = str(default_tle) if default_tle.exists() else "celestrak:active"
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--steps", type=int, default=60)
@@ -263,18 +264,19 @@ def main():
     ap.add_argument("--n-ground", type=int, default=20)
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--trace", type=str, default=None, help="Write JSONL trace for animation")
-
     ap.add_argument(
         "--tle-source",
         type=str,
-        default=str(default_tle) if default_tle.exists() else None,
+        default=default_source,
         help="TLE file path or URL for real data",
     )
-
     ap.add_argument("--attack", type=float, default=None, help="Run a single scenario with this attack rate")
     ap.add_argument("--outage", type=float, default=None, help="Run a single scenario with this outage rate")
     ap.add_argument("--congestion", type=float, default=None, help="Run a single scenario with this congestion rate")
     args = ap.parse_args()
+
+    if args.tle_source and is_placeholder_source(args.tle_source):
+        args.tle_source = None
 
     # Default sweep (kept for quick exploration)
     attacks = [0.0, 0.05, 0.2]

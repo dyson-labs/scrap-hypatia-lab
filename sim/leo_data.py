@@ -5,15 +5,23 @@ Use TLE sources when available, but keep a synthetic fallback for offline runs.
 
 from __future__ import annotations
 
+import hashlib
 import math
 import random
 import re
+import time
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, List, Optional
 
 EARTH_RADIUS_KM = 6378.137
 MU_KM3_S2 = 398600.4418
+
+NAMED_SOURCES = {
+    "celestrak:active": "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle",
+    "celestrak:leo": "https://celestrak.org/NORAD/elements/gp.php?GROUP=leo&FORMAT=tle",
+}
 
 
 @dataclass(frozen=True)
@@ -48,6 +56,11 @@ def _mean_motion_to_altitude_km(mean_motion_rev_per_day: float) -> float:
     return max(0.0, semi_major_km - EARTH_RADIUS_KM)
 
 
+def is_placeholder_source(source: str) -> bool:
+    lower = source.lower()
+    return ("<" in source and ">" in source) or "path-or-url" in lower or "your_tle" in lower
+
+
 def parse_tle_lines(lines: Iterable[str]) -> List[SatelliteRecord]:
     clean = [line.strip("\n") for line in lines if line.strip()]
     records: List[SatelliteRecord] = []
@@ -76,14 +89,37 @@ def parse_tle_lines(lines: Iterable[str]) -> List[SatelliteRecord]:
     return records
 
 
-def load_tle_catalog(source: str) -> List[SatelliteRecord]:
+def _load_with_cache(url: str, cache_dir: Path, ttl_hours: float) -> List[str]:
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
+    cache_path = cache_dir / f"tle_{digest}.txt"
+    now = time.time()
+
+    if cache_path.exists():
+        age_hours = (now - cache_path.stat().st_mtime) / 3600.0
+        if age_hours <= ttl_hours:
+            return cache_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+
+    with urllib.request.urlopen(url, timeout=30) as resp:
+        text = resp.read().decode("utf-8", errors="ignore")
+    cache_path.write_text(text, encoding="utf-8")
+    return text.splitlines()
+
+
+def load_tle_catalog(source: str, *, cache_dir: Optional[Path] = None, cache_ttl_hours: float = 24.0) -> List[SatelliteRecord]:
+    if is_placeholder_source(source):
+        raise ValueError("TLE source is a placeholder; provide a real path, URL, or named source.")
+
+    source = NAMED_SOURCES.get(source, source)
+    cache_dir = cache_dir or Path("data/cache")
+
     if re.match(r"^https?://", source):
-        with urllib.request.urlopen(source, timeout=20) as resp:
-            text = resp.read().decode("utf-8", errors="ignore")
-        lines = text.splitlines()
+        lines = _load_with_cache(source, cache_dir, cache_ttl_hours)
     else:
-        with open(source, encoding="utf-8") as handle:
-            lines = handle.readlines()
+        path = Path(source)
+        if not path.exists():
+            raise FileNotFoundError(f"TLE source not found: {source}")
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
     return parse_tle_lines(lines)
 
 

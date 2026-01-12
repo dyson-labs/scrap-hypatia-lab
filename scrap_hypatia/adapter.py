@@ -38,6 +38,19 @@ class HypatiaTransport:
     def register_receiver(self, dst: bytes, cb: Callable[[bytes, bytes, bytes, dict], None]) -> None:
         self._receivers[dst] = cb
 
+    def recv(self, dst: bytes, cb: Callable[[bytes, bytes, bytes, dict], None]) -> None:
+        self.register_receiver(dst, cb)
+
+    def can_send(self, src: bytes, dst: bytes, meta: Optional[dict] = None) -> bool:
+        if hasattr(self.hypatia, "can_send"):
+            return bool(self.hypatia.can_send(src, dst, meta or {}))
+        return True
+
+    def step(self, n: int = 1) -> None:
+        if hasattr(self.hypatia, "step"):
+            self.hypatia.step(n)
+
+
     def send(self, *, src: bytes, dst: bytes, payload: bytes, meta: Optional[dict] = None) -> None:
         if meta is None:
             meta = {}

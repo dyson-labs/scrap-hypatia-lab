@@ -172,6 +172,10 @@ class HypatiaStub:
         # non-zero TTFS and a clearer animation.
 
     # ---------- Internal network model ----------
+    def can_send(self, src: NodeId, dst: NodeId, _meta: Optional[dict] = None) -> bool:
+        edges = self._active_edges()
+        return self._has_path(src, dst, edges)
+
     def _active_edges(self) -> List[Edge]:
         """Active edges at current timestep."""
         edges: List[Edge] = []
