@@ -26,6 +26,7 @@ from typing import Dict, Optional
 from adapters.scrap_backend import get_backend
 from scrap_hypatia.adapter import HypatiaTransport
 from sim.hypatia_stub import HypatiaStub
+from sim.hypatia_real import build_real_hypatia_sim, is_linux_or_wsl
 from sim.leo_data import is_placeholder_source, load_tle_catalog, sample_leo_constellations
 
 
@@ -277,6 +278,13 @@ def main():
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--trace", type=str, default=None, help="Write JSONL trace for animation")
     ap.add_argument(
+        "--hypatia-mode",
+        type=str,
+        default="stub",
+        choices=["stub", "real"],
+        help="Select stub or real Hypatia connectivity",
+    )
+    ap.add_argument(
         "--hypatia-sim",
         type=str,
         default=None,
@@ -293,6 +301,18 @@ def main():
         type=str,
         default=None,
         help="Comma-separated ground node IDs if the Hypatia sim does not expose ground_nodes",
+    )
+    ap.add_argument(
+        "--hypatia-cmd",
+        type=str,
+        default=None,
+        help="Command to invoke Hypatia (e.g. 'python -m hypatia.cli')",
+    )
+    ap.add_argument(
+        "--hypatia-artifact",
+        type=str,
+        default=None,
+        help="Path to a Hypatia-generated connectivity artifact (JSON).",
     )
     ap.add_argument(
         "--tle-source",
@@ -317,6 +337,19 @@ def main():
         sim_cls = getattr(module, class_name)
         sim_kwargs = json.loads(args.hypatia_sim_kwargs or "{}")
         hypatia_sim = sim_cls(**sim_kwargs)
+        if args.ground_nodes:
+            hypatia_sim.ground_nodes = [node.strip().encode() for node in args.ground_nodes.split(",") if node.strip()]
+    elif args.hypatia_mode == "real":
+        if not is_linux_or_wsl():
+            raise ValueError("Real Hypatia mode is supported only on Linux/WSL.")
+        hypatia_sim = build_real_hypatia_sim(
+            hypatia_cmd=args.hypatia_cmd,
+            artifact_path=args.hypatia_artifact,
+            n_sats=args.n_sats,
+            n_ground=args.n_ground,
+            steps=args.steps,
+            seed=args.seed,
+        )
         if args.ground_nodes:
             hypatia_sim.ground_nodes = [node.strip().encode() for node in args.ground_nodes.split(",") if node.strip()]
 

@@ -5,6 +5,9 @@ __pycache__/
 *.pyo
 *.bak
 .venv/
+.pytest_cache/
+data/cache/
+deps/hypatia/
 
 # Runs / outputs
 runs/
