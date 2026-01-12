@@ -50,7 +50,6 @@ class HypatiaTransport:
         if hasattr(self.hypatia, "step"):
             self.hypatia.step(n)
 
-
     def send(self, *, src: bytes, dst: bytes, payload: bytes, meta: Optional[dict] = None) -> None:
         if meta is None:
             meta = {}

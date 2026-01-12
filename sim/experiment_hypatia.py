@@ -15,6 +15,8 @@ Replace it with real Hypatia by providing the same surface (inject + callbacks +
 from __future__ import annotations
 
 import argparse
+import importlib
+import json
 import random
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -87,25 +89,29 @@ def run_trial(
     n_sats: int,
     n_ground: int,
     tle_source: Optional[str] = None,
+    hypatia_sim: Optional[object] = None,
     trace_path: Optional[str] = None,
 ):
     rng = random.Random(seed)
     metrics = Metrics()
 
-    satellites = None
-    if tle_source:
-        records = load_tle_catalog(tle_source)
-        satellites = sample_leo_constellations(records, n_sats=n_sats, rng=rng)
+    if hypatia_sim is not None:
+        hypatia = hypatia_sim
+    else:
+        satellites = None
+        if tle_source:
+            records = load_tle_catalog(tle_source)
+            satellites = sample_leo_constellations(records, n_sats=n_sats, rng=rng)
 
-    hypatia = HypatiaStub(
-        rng=rng,
-        outage_p=outage_p,
-        congestion_p=congestion_p,
-        ttl_steps=ttl_steps,
-        n_sats=n_sats,
-        n_ground=n_ground,
-        satellites=satellites,
-    )
+        hypatia = HypatiaStub(
+            rng=rng,
+            outage_p=outage_p,
+            congestion_p=congestion_p,
+            ttl_steps=ttl_steps,
+            n_sats=n_sats,
+            n_ground=n_ground,
+            satellites=satellites,
+        )
     transport = HypatiaTransport(hypatia, attack_p=attack_p, rng=rng, metrics=metrics)
     scrap = get_backend()
 
@@ -119,7 +125,9 @@ def run_trial(
     # job_id -> deadline timestep
     job_deadline: Dict[int, int] = {}
 
-    ground_nodes = hypatia.ground_nodes
+    ground_nodes = getattr(hypatia, "ground_nodes", None)
+    if ground_nodes is None:
+        raise ValueError("Hypatia sim must expose ground_nodes or provide --ground-nodes.")
 
     def on_rx(_src: bytes, _dst: bytes, payload: bytes, meta: dict):
         """Receipt arrived. Verify and record TTFS."""
@@ -163,7 +171,11 @@ def run_trial(
 
         # Inject jobs for this timestep
         for _ in range(inject_per_step):
-            src = f"sat-{rng.randrange(hypatia.n_sats)}".encode()
+            sat_nodes = getattr(hypatia, "sat_nodes", None)
+            if sat_nodes:
+                src = rng.choice(sat_nodes)
+            else:
+                src = f"sat-{rng.randrange(getattr(hypatia, 'n_sats', n_sats))}".encode()
             dst = rng.choice(ground_nodes)
 
             token = scrap.issue_capability_token(
@@ -265,6 +277,24 @@ def main():
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--trace", type=str, default=None, help="Write JSONL trace for animation")
     ap.add_argument(
+        "--hypatia-sim",
+        type=str,
+        default=None,
+        help="Import path to a real Hypatia sim class (e.g. pkg.module:ClassName)",
+    )
+    ap.add_argument(
+        "--hypatia-sim-kwargs",
+        type=str,
+        default="{}",
+        help="JSON kwargs for constructing the Hypatia sim",
+    )
+    ap.add_argument(
+        "--ground-nodes",
+        type=str,
+        default=None,
+        help="Comma-separated ground node IDs if the Hypatia sim does not expose ground_nodes",
+    )
+    ap.add_argument(
         "--tle-source",
         type=str,
         default=default_source,
@@ -277,6 +307,18 @@ def main():
 
     if args.tle_source and is_placeholder_source(args.tle_source):
         args.tle_source = None
+
+    hypatia_sim = None
+    if args.hypatia_sim:
+        module_name, _, class_name = args.hypatia_sim.partition(":")
+        if not module_name or not class_name:
+            raise ValueError("--hypatia-sim must be in the form module:ClassName")
+        module = importlib.import_module(module_name)
+        sim_cls = getattr(module, class_name)
+        sim_kwargs = json.loads(args.hypatia_sim_kwargs or "{}")
+        hypatia_sim = sim_cls(**sim_kwargs)
+        if args.ground_nodes:
+            hypatia_sim.ground_nodes = [node.strip().encode() for node in args.ground_nodes.split(",") if node.strip()]
 
     # Default sweep (kept for quick exploration)
     attacks = [0.0, 0.05, 0.2]
@@ -301,6 +343,7 @@ def main():
             n_sats=args.n_sats,
             n_ground=args.n_ground,
             tle_source=args.tle_source,
+            hypatia_sim=hypatia_sim,
             trace_path=args.trace,
         )
 
@@ -344,6 +387,7 @@ def main():
                     n_sats=args.n_sats,
                     n_ground=args.n_ground,
                     tle_source=args.tle_source,
+                    hypatia_sim=hypatia_sim,
                     trace_path=trace_path,
                 )
                 print(
