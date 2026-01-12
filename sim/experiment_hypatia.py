@@ -15,7 +15,10 @@ Replace it with real Hypatia by providing the same surface (inject + callbacks +
 from __future__ import annotations
 
 import argparse
+import importlib
+import json
 import random
+from pathlib import Path
 from dataclasses import dataclass, field
 from statistics import mean
 from typing import Dict, Optional
@@ -23,6 +26,7 @@ from typing import Dict, Optional
 from adapters.scrap_backend import get_backend
 from scrap_hypatia.adapter import HypatiaTransport
 from sim.hypatia_stub import HypatiaStub
+from sim.leo_data import is_placeholder_source, load_tle_catalog, sample_leo_constellations
 
 
 try:
@@ -31,6 +35,14 @@ try:
 
 except Exception:  # pragma: no cover
     TraceWriter = None  # type: ignore
+
+
+def tamper(payload: bytes, rng: random.Random) -> bytes:
+    if not payload:
+        return payload
+    idx = rng.randrange(len(payload))
+    flipped = (payload[idx] ^ 0x01).to_bytes(1, "little")
+    return payload[:idx] + flipped + payload[idx + 1 :]
 
 
 @dataclass
@@ -56,11 +68,14 @@ class Metrics:
 
     def on_drop(self, _pkt, _reason=""):
         self.dropped += 1
+
     def on_tamper(self, _pkt):
         self.tampered += 1
 
     def on_reject(self, _req, _reason=""):
         self.rejected += 1
+
+
 def run_trial(
     *,
     steps: int,
@@ -71,12 +86,32 @@ def run_trial(
     congestion_p: float,
     ttl_steps: int,
     deadline_steps: int,
+    n_sats: int,
+    n_ground: int,
+    tle_source: Optional[str] = None,
+    hypatia_sim: Optional[object] = None,
     trace_path: Optional[str] = None,
 ):
     rng = random.Random(seed)
     metrics = Metrics()
 
-    hypatia = HypatiaStub(rng=rng, outage_p=outage_p, congestion_p=congestion_p, ttl_steps=ttl_steps)
+    if hypatia_sim is not None:
+        hypatia = hypatia_sim
+    else:
+        satellites = None
+        if tle_source:
+            records = load_tle_catalog(tle_source)
+            satellites = sample_leo_constellations(records, n_sats=n_sats, rng=rng)
+
+        hypatia = HypatiaStub(
+            rng=rng,
+            outage_p=outage_p,
+            congestion_p=congestion_p,
+            ttl_steps=ttl_steps,
+            n_sats=n_sats,
+            n_ground=n_ground,
+            satellites=satellites,
+        )
     transport = HypatiaTransport(hypatia, attack_p=attack_p, rng=rng, metrics=metrics)
     scrap = get_backend()
 
@@ -90,7 +125,9 @@ def run_trial(
     # job_id -> deadline timestep
     job_deadline: Dict[int, int] = {}
 
-    dst = b"ground"
+    ground_nodes = getattr(hypatia, "ground_nodes", None)
+    if ground_nodes is None:
+        raise ValueError("Hypatia sim must expose ground_nodes or provide --ground-nodes.")
 
     def on_rx(_src: bytes, _dst: bytes, payload: bytes, meta: dict):
         """Receipt arrived. Verify and record TTFS."""
@@ -118,7 +155,8 @@ def run_trial(
             job_expected.pop(int(job_id), None)
             job_deadline.pop(int(job_id), None)
 
-    transport.register_receiver(dst, on_rx)
+    for ground in ground_nodes:
+        transport.recv(ground, on_rx)
 
     # --- main simulation loop ---
     job_id = 0
@@ -133,7 +171,12 @@ def run_trial(
 
         # Inject jobs for this timestep
         for _ in range(inject_per_step):
-            src = f"sat-{rng.randrange(hypatia.n_sats)}".encode()
+            sat_nodes = getattr(hypatia, "sat_nodes", None)
+            if sat_nodes:
+                src = rng.choice(sat_nodes)
+            else:
+                src = f"sat-{rng.randrange(getattr(hypatia, 'n_sats', n_sats))}".encode()
+            dst = rng.choice(ground_nodes)
 
             token = scrap.issue_capability_token(
                 subject=src.decode(),
@@ -147,6 +190,11 @@ def run_trial(
             )
 
             receipt = scrap.make_receipt(req, b"result")
+            payload = receipt
+            if attack_p > 0 and rng.random() < attack_p:
+                payload = tamper(receipt, rng)
+                metrics.on_tamper(payload)
+
             job_inject_t[job_id] = hypatia.now
             job_expected[job_id] = receipt
             job_deadline[job_id] = hypatia.now + deadline_steps
@@ -156,7 +204,7 @@ def run_trial(
                 "job_id": job_id,
                 "ttl_steps": ttl_steps,
             }
-            transport.send(src=src, dst=dst, payload=receipt, meta=meta)
+            transport.send(src=src, dst=dst, payload=payload, meta=meta)
 
             if trace:
                 trace.write(hypatia.now, "inject", src=src.decode(), dst=dst.decode(), job_id=job_id, size=len(receipt))
@@ -216,17 +264,61 @@ def run_trial(
 
 
 def main():
+    default_tle = Path("data/tle_leo_sample.txt")
+    default_source = str(default_tle) if default_tle.exists() else "celestrak:active"
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--steps", type=int, default=60)
     ap.add_argument("--inject-per-step", type=int, default=4)
     ap.add_argument("--ttl-steps", type=int, default=30)
     ap.add_argument("--deadline-steps", type=int, default=25)
+    ap.add_argument("--n-sats", type=int, default=200)
+    ap.add_argument("--n-ground", type=int, default=20)
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--trace", type=str, default=None, help="Write JSONL trace for animation")
+    ap.add_argument(
+        "--hypatia-sim",
+        type=str,
+        default=None,
+        help="Import path to a real Hypatia sim class (e.g. pkg.module:ClassName)",
+    )
+    ap.add_argument(
+        "--hypatia-sim-kwargs",
+        type=str,
+        default="{}",
+        help="JSON kwargs for constructing the Hypatia sim",
+    )
+    ap.add_argument(
+        "--ground-nodes",
+        type=str,
+        default=None,
+        help="Comma-separated ground node IDs if the Hypatia sim does not expose ground_nodes",
+    )
+    ap.add_argument(
+        "--tle-source",
+        type=str,
+        default=default_source,
+        help="TLE file path or URL for real data",
+    )
     ap.add_argument("--attack", type=float, default=None, help="Run a single scenario with this attack rate")
     ap.add_argument("--outage", type=float, default=None, help="Run a single scenario with this outage rate")
     ap.add_argument("--congestion", type=float, default=None, help="Run a single scenario with this congestion rate")
     args = ap.parse_args()
+
+    if args.tle_source and is_placeholder_source(args.tle_source):
+        args.tle_source = None
+
+    hypatia_sim = None
+    if args.hypatia_sim:
+        module_name, _, class_name = args.hypatia_sim.partition(":")
+        if not module_name or not class_name:
+            raise ValueError("--hypatia-sim must be in the form module:ClassName")
+        module = importlib.import_module(module_name)
+        sim_cls = getattr(module, class_name)
+        sim_kwargs = json.loads(args.hypatia_sim_kwargs or "{}")
+        hypatia_sim = sim_cls(**sim_kwargs)
+        if args.ground_nodes:
+            hypatia_sim.ground_nodes = [node.strip().encode() for node in args.ground_nodes.split(",") if node.strip()]
 
     # Default sweep (kept for quick exploration)
     attacks = [0.0, 0.05, 0.2]
@@ -248,6 +340,10 @@ def main():
             congestion_p=c,
             ttl_steps=args.ttl_steps,
             deadline_steps=args.deadline_steps,
+            n_sats=args.n_sats,
+            n_ground=args.n_ground,
+            tle_source=args.tle_source,
+            hypatia_sim=hypatia_sim,
             trace_path=args.trace,
         )
 
@@ -288,6 +384,10 @@ def main():
                     congestion_p=c,
                     ttl_steps=args.ttl_steps,
                     deadline_steps=args.deadline_steps,
+                    n_sats=args.n_sats,
+                    n_ground=args.n_ground,
+                    tle_source=args.tle_source,
+                    hypatia_sim=hypatia_sim,
                     trace_path=trace_path,
                 )
                 print(
@@ -301,5 +401,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
