@@ -1,11 +1,11 @@
-"""Ring-layout animation for Experiment 001 logs."""
+"""Histogram animation for Experiment 001 logs (per-satellite bins)."""
 
 from __future__ import annotations
 
 import argparse
 import math
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import matplotlib.pyplot as plt
 from matplotlib import animation
@@ -13,16 +13,27 @@ from matplotlib import animation
 from tools.common_log import LogEvent, load_events
 
 
-def _node_positions(n_sats: int, n_gs: int) -> Dict[str, Tuple[float, float]]:
-    positions: Dict[str, Tuple[float, float]] = {}
-    for i in range(n_sats):
-        theta = 2 * math.pi * i / n_sats
-        positions[f"sat{i}"] = (math.cos(theta), math.sin(theta))
-    if n_gs >= 1:
-        positions["GS0"] = (-1.6, 0.0)
-    if n_gs >= 2:
-        positions["GS1"] = (1.6, 0.0)
-    return positions
+EVENT_ORDER = [
+    "task_created",
+    "token_issued",
+    "task_dispatched",
+    "task_forwarded",
+    "token_validated",
+    "task_accepted",
+    "task_completed",
+    "receipt_emitted",
+]
+
+EVENT_COLORS = {
+    "task_created": "#4C78A8",
+    "token_issued": "#A0CBE8",
+    "task_dispatched": "#F58518",
+    "task_forwarded": "#FFBE7D",
+    "token_validated": "#54A24B",
+    "task_accepted": "#72B7B2",
+    "task_completed": "#B79A20",
+    "receipt_emitted": "#E45756",
+}
 
 
 def _bin_events(events: List[LogEvent], tbin: float, max_time: float) -> List[List[LogEvent]]:
@@ -48,7 +59,6 @@ def render(
     events: List[LogEvent],
     out_path: Path,
     n_sats: int,
-    n_gs: int,
     fps: int,
     tbin: float,
     duration: float | None,
@@ -60,71 +70,63 @@ def render(
     events = [LogEvent(t=e.t - start_t, payload=e.payload) for e in events]
     max_t = events[-1].t if duration is None else min(duration, events[-1].t)
     bins = _bin_events(events, tbin, max_t)
-    positions = _node_positions(n_sats, n_gs)
     completed = 0
     missed = 0
-    flash_nodes: Dict[str, float] = {}
 
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.set_xlim(-2.0, 2.0)
-    ax.set_ylim(-2.0, 2.0)
-    ax.axis("off")
-
-    base_edges = [(f"sat{i}", f"sat{(i + 1) % n_sats}") for i in range(n_sats)]
+    fig, ax = plt.subplots(figsize=(10, 5))
 
     def draw_frame(frame_idx: int):
         nonlocal completed, missed
         ax.clear()
-        ax.set_xlim(-2.0, 2.0)
-        ax.set_ylim(-2.0, 2.0)
-        ax.axis("off")
+        ax.set_xlim(-0.5, n_sats - 0.5)
+        ax.set_xlabel("Satellite")
+        ax.set_ylabel("Event count (per bin)")
+        ax.set_title("Experiment 001 Event Histogram")
 
-        for a, b in base_edges:
-            xa, ya = positions[a]
-            xb, yb = positions[b]
-            ax.plot([xa, xb], [ya, yb], color="#cccccc", linewidth=0.5, alpha=0.6)
+        counts: Dict[int, Dict[str, int]] = {i: {e: 0 for e in EVENT_ORDER} for i in range(n_sats)}
 
-        # nodes
-        for name, (x, y) in positions.items():
-            color = "#1f77b4" if name.startswith("sat") else "#444444"
-            if name in flash_nodes and frame_idx - flash_nodes[name] <= 2:
-                color = "#2ca02c"
-            ax.scatter([x], [y], s=60 if name.startswith("GS") else 30, color=color)
-            ax.text(x + 0.03, y + 0.03, name, fontsize=8, color="#333333")
-
-        # events in this bin
         if frame_idx < len(bins):
             for ev in bins[frame_idx]:
                 payload = ev.payload
                 ev_type = payload.get("type") or payload.get("event")
-                src = payload.get("src")
-                dst = payload.get("dst")
-                if ev_type in {"inject", "forward", "deliver"} and src and dst:
-                    if src in positions and dst in positions:
-                        xa, ya = positions[src]
-                        xb, yb = positions[dst]
-                        ax.plot([xa, xb], [ya, yb], color="#ff7f0e", linewidth=1.5, alpha=0.8)
-                        ax.scatter([xb], [yb], s=25, color="#ff7f0e", alpha=0.8)
                 if ev_type == "complete":
-                    node = payload.get("executor") or dst or src
-                    if node:
-                        flash_nodes[node] = frame_idx
-                        completed += 1
+                    completed += 1
                 if ev_type == "deadline_miss":
-                    node = payload.get("executor") or dst or src
-                    if node:
-                        ax.scatter(
-                            [positions.get(node, (0.0, 0.0))[0]],
-                            [positions.get(node, (0.0, 0.0))[1]],
-                            s=80,
-                            color="#d62728",
-                            alpha=0.8,
-                        )
-                        missed += 1
+                    missed += 1
+                if ev_type not in EVENT_ORDER:
+                    continue
+                node = payload.get("executor") or payload.get("dst") or payload.get("src")
+                if node and node.lower().startswith("sat"):
+                    digits = "".join(ch for ch in node if ch.isdigit())
+                    if not digits:
+                        continue
+                    idx = int(digits)
+                    if 0 <= idx < n_sats:
+                        counts[idx][ev_type] += 1
 
-        ax.text(-1.9, 1.8, f"t={int(frame_idx * tbin)}s", fontsize=10)
-        ax.text(-1.9, 1.65, f"completed={completed}", fontsize=9)
-        ax.text(-1.9, 1.5, f"missed={missed}", fontsize=9)
+        max_count = max((sum(counts[i].values()) for i in range(n_sats)), default=1)
+        ax.set_ylim(0, max(1, max_count + 1))
+
+        x_positions = list(range(n_sats))
+        bottom = [0] * n_sats
+
+        for ev_type in EVENT_ORDER:
+            heights = [counts[i][ev_type] for i in range(n_sats)]
+            ax.bar(
+                x_positions,
+                heights,
+                bottom=bottom,
+                color=EVENT_COLORS.get(ev_type, "#999999"),
+                label=ev_type,
+            )
+            bottom = [bottom[i] + heights[i] for i in range(n_sats)]
+
+        ax.set_xticks(x_positions)
+        ax.set_xticklabels([f"sat{i}" for i in range(n_sats)], rotation=45, ha="right", fontsize=8)
+        ax.legend(loc="upper right", fontsize=7, frameon=False, ncol=2)
+        ax.text(0.02, 0.95, f"t={int(frame_idx * tbin)}s", transform=ax.transAxes, fontsize=10)
+        ax.text(0.02, 0.9, f"completed={completed}", transform=ax.transAxes, fontsize=9)
+        ax.text(0.02, 0.85, f"missed={missed}", transform=ax.transAxes, fontsize=9)
 
     ani = animation.FuncAnimation(fig, draw_frame, frames=len(bins), interval=1000 / fps)
     writer = _writer_for_output(out_path)
@@ -155,7 +157,6 @@ def main() -> None:
         events=events,
         out_path=out_path,
         n_sats=args.n_sats,
-        n_gs=args.n_gs,
         fps=args.fps,
         tbin=args.tbin,
         duration=args.duration,

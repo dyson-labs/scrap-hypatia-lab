@@ -1,6 +1,6 @@
 # Visualization
 
-## Ring animation
+## Ring animation (histogram)
 
 ```bash
 python tools/animate_ring.py --log runs/modeA.jsonl --out runs/anim_ring_modeA.mp4
