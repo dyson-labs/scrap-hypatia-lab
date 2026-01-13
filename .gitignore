@@ -23,3 +23,5 @@ Thumbs.db
 
 # Rust (submodule build artifacts)
 **/target/
+__pycache__/
+*.pyc
