@@ -5,7 +5,12 @@ __pycache__/
 *.pyo
 *.bak
 .venv/
-scrap_hypatia/
+.pytest_cache/
+data/cache/
+deps/hypatia/
+runs/*.mp4
+runs/*.gif
+runs/*.svg
 
 # Runs / outputs
 runs/
