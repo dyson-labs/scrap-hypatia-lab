@@ -30,6 +30,14 @@ python -m analysis.metrics
 
 This prints a comparison table and writes `runs/summary.csv`.
 
+## Visualization
+
+```bash
+python -m analysis.plot_experiment
+```
+
+This writes `runs/summary.svg` with a simple p90 latency and deadline miss chart.
+
 ## Expected result
 
 Mode B should reduce p90 latency and deadline misses relative to Mode A.
