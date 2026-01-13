@@ -5,13 +5,32 @@ from __future__ import annotations
 import argparse
 import math
 import random
+from bisect import bisect_right
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 import matplotlib.pyplot as plt
 from matplotlib import animation
 
-from common_log import LogEvent, load_events
+from .common_log import LogEvent, load_events, parse_node_id
+
+TIME_SPACE_COLORS = {
+    "inject": "#4C78A8",
+    "task_created": "#4C78A8",
+    "token_issued": "#A0CBE8",
+    "forward": "#F58518",
+    "task_dispatched": "#F58518",
+    "task_forwarded": "#FFBE7D",
+    "deliver": "#54A24B",
+    "token_validated": "#54A24B",
+    "task_accepted": "#72B7B2",
+    "complete": "#B79A20",
+    "task_completed": "#B79A20",
+    "receipt_emitted": "#E45756",
+    "deadline_miss": "#E45756",
+}
+
+COMPLETION_EVENTS = {"complete", "task_completed"}
 
 
 def _ground_positions() -> Dict[str, Tuple[float, float]]:
@@ -78,21 +97,48 @@ def render(
     missed = 0
     flash_nodes: Dict[str, float] = {}
 
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.set_xlim(-2.0, 2.0)
-    ax.set_ylim(-2.0, 2.0)
-    ax.axis("off")
+    node_labels = [f"sat{i}" for i in range(n_sats)] + [f"gs{i}" for i in range(n_gs)]
+    max_nodes = len(node_labels)
+    time_space_events = []
+    completion_times = []
+    for ev in events:
+        payload = ev.payload
+        ev_type = payload.get("type") or payload.get("event")
+        if ev_type in COMPLETION_EVENTS:
+            completion_times.append(ev.t)
+        node = payload.get("executor") or payload.get("dst") or payload.get("src")
+        if not node or not ev_type:
+            continue
+        try:
+            kind, idx = parse_node_id(node)
+        except ValueError:
+            continue
+        node_index = idx if kind == "sat" else n_sats + idx
+        if 0 <= node_index < max_nodes:
+            time_space_events.append((ev.t, node_index, ev_type))
+    completion_times.sort()
+
+    fig = plt.figure(figsize=(11, 6))
+    grid = fig.add_gridspec(2, 2, width_ratios=[2.2, 1.4], height_ratios=[1.3, 1.0])
+    ax_orbit = fig.add_subplot(grid[:, 0])
+    ax_timespace = fig.add_subplot(grid[0, 1])
+    ax_completion = fig.add_subplot(grid[1, 1])
+    ax_orbit.set_xlim(-2.0, 2.0)
+    ax_orbit.set_ylim(-2.0, 2.0)
+    ax_orbit.axis("off")
 
     def draw_frame(frame_idx: int):
         nonlocal completed, missed
-        ax.clear()
-        ax.set_xlim(-2.0, 2.0)
-        ax.set_ylim(-2.0, 2.0)
-        ax.axis("off")
+        ax_orbit.clear()
+        ax_timespace.clear()
+        ax_completion.clear()
+        ax_orbit.set_xlim(-2.0, 2.0)
+        ax_orbit.set_ylim(-2.0, 2.0)
+        ax_orbit.axis("off")
 
         # Earth
         earth = plt.Circle((0, 0), 1.0, color="#ddeef7", fill=False, linewidth=1.0)
-        ax.add_patch(earth)
+        ax_orbit.add_patch(earth)
 
         t_now = frame_idx * tbin
         sat_positions = _sat_positions(phases, t_now, radius=1.35, period=5400.0)
@@ -101,12 +147,12 @@ def render(
             color = "#1f77b4"
             if name in flash_nodes and frame_idx - flash_nodes[name] <= 2:
                 color = "#2ca02c"
-            ax.scatter([x], [y], s=30, color=color)
-            ax.text(x + 0.03, y + 0.03, name, fontsize=7, color="#333333")
+            ax_orbit.scatter([x], [y], s=30, color=color)
+            ax_orbit.text(x + 0.03, y + 0.03, name, fontsize=7, color="#333333")
 
         for name, (x, y) in ground.items():
-            ax.scatter([x], [y], s=60, color="#444444")
-            ax.text(x + 0.03, y + 0.03, name, fontsize=8, color="#333333")
+            ax_orbit.scatter([x], [y], s=60, color="#444444")
+            ax_orbit.text(x + 0.03, y + 0.03, name, fontsize=8, color="#333333")
 
         if frame_idx < len(bins):
             for ev in bins[frame_idx]:
@@ -119,9 +165,9 @@ def render(
                     if src in positions and dst in positions:
                         xa, ya = positions[src]
                         xb, yb = positions[dst]
-                        ax.plot([xa, xb], [ya, yb], color="#ff7f0e", linewidth=1.5, alpha=0.8)
-                        ax.scatter([xb], [yb], s=25, color="#ff7f0e", alpha=0.8)
-                if ev_type == "complete":
+                        ax_orbit.plot([xa, xb], [ya, yb], color="#ff7f0e", linewidth=1.5, alpha=0.8)
+                        ax_orbit.scatter([xb], [yb], s=25, color="#ff7f0e", alpha=0.8)
+                if ev_type in COMPLETION_EVENTS:
                     node = payload.get("executor") or dst or src
                     if node:
                         flash_nodes[node] = frame_idx
@@ -129,12 +175,58 @@ def render(
                 if ev_type == "deadline_miss":
                     node = payload.get("executor") or dst or src
                     if node and node in positions:
-                        ax.scatter([positions[node][0]], [positions[node][1]], s=80, color="#d62728", alpha=0.8)
+                        ax_orbit.scatter(
+                            [positions[node][0]],
+                            [positions[node][1]],
+                            s=80,
+                            color="#d62728",
+                            alpha=0.8,
+                        )
                         missed += 1
 
-        ax.text(-1.9, 1.8, f"t={int(t_now)}s", fontsize=10)
-        ax.text(-1.9, 1.65, f"completed={completed}", fontsize=9)
-        ax.text(-1.9, 1.5, f"missed={missed}", fontsize=9)
+        ax_orbit.text(-1.9, 1.8, f"t={int(t_now)}s", fontsize=10)
+        ax_orbit.text(-1.9, 1.65, f"completed={completed}", fontsize=9)
+        ax_orbit.text(-1.9, 1.5, f"missed={missed}", fontsize=9)
+
+        ax_timespace.set_title("Time–Space Diagram", fontsize=10)
+        ax_timespace.set_xlabel("Time (s)")
+        ax_timespace.set_ylabel("Node")
+        ax_timespace.set_xlim(0, max_t)
+        ax_timespace.set_ylim(-0.5, max_nodes - 0.5)
+        ax_timespace.set_yticks(range(max_nodes))
+        ax_timespace.set_yticklabels(node_labels, fontsize=7)
+
+        visible_events = [ev for ev in time_space_events if ev[0] <= t_now]
+        for ev_type in {ev[2] for ev in visible_events}:
+            points = [(ev[0], ev[1]) for ev in visible_events if ev[2] == ev_type]
+            if not points:
+                continue
+            times, nodes = zip(*points)
+            ax_timespace.scatter(
+                times,
+                nodes,
+                s=12,
+                color=TIME_SPACE_COLORS.get(ev_type, "#999999"),
+                alpha=0.7,
+                label=ev_type,
+            )
+        if visible_events:
+            ax_timespace.legend(loc="upper left", fontsize=6, frameon=False, ncol=2)
+
+        ax_completion.set_title("Cumulative Completions", fontsize=10)
+        ax_completion.set_xlabel("Time (s)")
+        ax_completion.set_ylabel("Completed")
+        ax_completion.set_xlim(0, max_t)
+        ax_completion.set_ylim(0, max(1, len(completion_times) + 1))
+        idx = bisect_right(completion_times, t_now)
+        if completion_times:
+            ax_completion.step(
+                completion_times[:idx],
+                list(range(1, idx + 1)),
+                where="post",
+                color="#2ca02c",
+            )
+        ax_completion.scatter([t_now], [idx], color="#2ca02c", s=20)
 
     ani = animation.FuncAnimation(fig, draw_frame, frames=len(bins), interval=1000 / fps)
     writer = _writer_for_output(out_path, fps)
