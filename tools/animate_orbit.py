@@ -11,7 +11,7 @@ from typing import Dict, List, Tuple
 import matplotlib.pyplot as plt
 from matplotlib import animation
 
-from tools.common_log import LogEvent, load_events
+from common_log import LogEvent, load_events
 
 
 def _ground_positions() -> Dict[str, Tuple[float, float]]:
@@ -45,12 +45,11 @@ def _bin_events(events: List[LogEvent], tbin: float, max_time: float) -> List[Li
     return grouped
 
 
-def _writer_for_output(out_path: Path):
+def _writer_for_output(out_path: Path, fps: int):
     if out_path.suffix == ".mp4":
-        try:
-            return animation.FFMpegWriter(fps=24)
-        except (RuntimeError, FileNotFoundError):
-            return None
+        if animation.writers.is_available("ffmpeg"):
+            return animation.FFMpegWriter(fps=fps)
+        return None
     return None
 
 
@@ -138,7 +137,7 @@ def render(
         ax.text(-1.9, 1.5, f"missed={missed}", fontsize=9)
 
     ani = animation.FuncAnimation(fig, draw_frame, frames=len(bins), interval=1000 / fps)
-    writer = _writer_for_output(out_path)
+    writer = _writer_for_output(out_path, fps)
     if writer is not None:
         ani.save(out_path, writer=writer)
         return out_path
