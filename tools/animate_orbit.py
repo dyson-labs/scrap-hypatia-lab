@@ -12,7 +12,7 @@ from typing import Dict, List, Tuple
 import matplotlib.pyplot as plt
 from matplotlib import animation
 
-from common_log import LogEvent, load_events, parse_node_id
+from .common_log import LogEvent, load_events, parse_node_id
 
 TIME_SPACE_COLORS = {
     "inject": "#4C78A8",
