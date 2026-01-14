@@ -17,14 +17,3 @@ class ScrapClient:
     def verify_receipt(self, receipt, req):
         expected = self.make_receipt(req, b"result")
         return receipt == expected
-
-
-
-    def admit(self, req, meta=None):
-        return True, ""
-
-
-
-    def admit(self, req, meta=None):
-        return True, ""
-

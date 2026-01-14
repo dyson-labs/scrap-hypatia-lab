@@ -30,14 +30,6 @@ from sim.hypatia_real import build_real_hypatia_sim, is_linux_or_wsl
 from sim.leo_data import is_placeholder_source, load_tle_catalog, sample_leo_constellations
 
 
-try:
-    # Optional: only needed if you want traces for animation.
-    from viz.trace import TraceWriter
-
-except Exception:  # pragma: no cover
-    TraceWriter = None  # type: ignore
-
-
 def tamper(payload: bytes, rng: random.Random) -> bytes:
     if not payload:
         return payload
@@ -91,7 +83,6 @@ def run_trial(
     n_ground: int,
     tle_source: Optional[str] = None,
     hypatia_sim: Optional[object] = None,
-    trace_path: Optional[str] = None,
 ):
     rng = random.Random(seed)
     metrics = Metrics()
@@ -115,8 +106,6 @@ def run_trial(
         )
     transport = HypatiaTransport(hypatia, attack_p=attack_p, rng=rng, metrics=metrics)
     scrap = get_backend()
-
-    trace = TraceWriter(trace_path) if (trace_path and TraceWriter is not None) else None
 
     # Track jobs so we can compute TTFS and deadline feasibility.
     # job_id -> injection timestep
@@ -143,9 +132,6 @@ def run_trial(
         else:
             metrics.verified_bad += 1
 
-        if trace:
-            trace.write(hypatia.now, "verify", ok=bool(ok), src=_src.decode(), dst=_dst.decode(), job_id=job_id)
-
         # TTFS only counts verified-ok completions
         if ok and job_id is not None and t_in is not None and t_del is not None:
             metrics.completed += 1
@@ -162,14 +148,6 @@ def run_trial(
     # --- main simulation loop ---
     job_id = 0
     for _t in range(steps):
-        if trace:
-            trace.write(
-                hypatia.now,
-                "state",
-                positions=hypatia.get_node_positions(),
-                links=hypatia.get_active_links(),
-            )
-
         # Inject jobs for this timestep
         for _ in range(inject_per_step):
             sat_nodes = getattr(hypatia, "sat_nodes", None)
@@ -207,9 +185,6 @@ def run_trial(
             }
             transport.send(src=src, dst=dst, payload=payload, meta=meta)
 
-            if trace:
-                trace.write(hypatia.now, "inject", src=src.decode(), dst=dst.decode(), job_id=job_id, size=len(receipt))
-
             job_id += 1
 
         # Advance sim and try deliver queued packets
@@ -222,12 +197,6 @@ def run_trial(
             job_inject_t.pop(jid, None)
             job_expected.pop(jid, None)
             job_deadline.pop(jid, None)
-
-            if trace:
-                trace.write(hypatia.now, "deadline_miss", job_id=jid)
-
-    if trace:
-        trace.close()
 
     availability_rate = (metrics.delivered / metrics.injected) if metrics.injected else 0.0
     verified_rate = (metrics.verified_ok / max(1, (metrics.verified_ok + metrics.verified_bad)))
@@ -276,7 +245,6 @@ def main():
     ap.add_argument("--n-sats", type=int, default=200)
     ap.add_argument("--n-ground", type=int, default=20)
     ap.add_argument("--seed", type=int, default=7)
-    ap.add_argument("--trace", type=str, default=None, help="Write JSONL trace for animation")
     ap.add_argument(
         "--hypatia-mode",
         type=str,
@@ -377,7 +345,6 @@ def main():
             n_ground=args.n_ground,
             tle_source=args.tle_source,
             hypatia_sim=hypatia_sim,
-            trace_path=args.trace,
         )
 
         print(
@@ -403,11 +370,6 @@ def main():
     for a in attacks:
         for o in outages:
             for c in congestions:
-                trace_path = args.trace
-                # If tracing, only trace the first scenario to keep file small.
-                if trace_path and not (a == attacks[0] and o == outages[0] and c == congestions[0]):
-                    trace_path = None
-
                 r = run_trial(
                     steps=args.steps,
                     inject_per_step=args.inject_per_step,
@@ -421,7 +383,6 @@ def main():
                     n_ground=args.n_ground,
                     tle_source=args.tle_source,
                     hypatia_sim=hypatia_sim,
-                    trace_path=trace_path,
                 )
                 print(
                     f"{a:<6.2f} {o:<6.2f} {c:<5.2f}  "
