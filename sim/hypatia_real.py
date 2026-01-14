@@ -6,6 +6,7 @@ import json
 import math
 import os
 import platform
+import random
 import shlex
 import shutil
 import subprocess
@@ -103,6 +104,9 @@ class HypatiaScheduleSim:
     sat_nodes: List[bytes]
     ground_nodes: List[bytes]
     ttl_steps: int = 30
+    outage_p: float = 0.0
+    congestion_p: float = 0.0
+    rng: Optional[random.Random] = None
 
     def __post_init__(self) -> None:
         self._t = 0
@@ -110,6 +114,9 @@ class HypatiaScheduleSim:
         self._on_drop: List[Callable[[HypatiaPacket, str], None]] = []
         self._queue: List[Tuple[int, HypatiaPacket]] = []
         self.n_sats = len(self.sat_nodes)
+        self.outage_p = float(self.outage_p)
+        self.congestion_p = float(self.congestion_p)
+        self.rng = self.rng or random.Random()
 
     @property
     def now(self) -> int:
@@ -187,6 +194,14 @@ class HypatiaScheduleSim:
             if not self._has_path(pkt.src, pkt.dst, edges):
                 keep.append((t_inject, pkt))
                 continue
+            if self.outage_p > 0.0 and self.rng.random() < self.outage_p:
+                for cb in self._on_drop:
+                    cb(pkt, "outage")
+                continue
+            if self.congestion_p > 0.0 and self.rng.random() < self.congestion_p:
+                for cb in self._on_drop:
+                    cb(pkt, "congestion")
+                continue
             for cb in self._on_delivery:
                 cb(pkt)
         self._queue = keep
@@ -200,6 +215,8 @@ def build_real_hypatia_sim(
     n_ground: int,
     steps: int,
     seed: int,
+    outage_p: float = 0.0,
+    congestion_p: float = 0.0,
 ) -> HypatiaScheduleSim:
     if not hypatia_cmd:
         hypatia_cmd = os.environ.get("HYPATIA_CMD")
@@ -222,4 +239,11 @@ def build_real_hypatia_sim(
     ground_nodes = [n.encode() for n in payload.get("ground_nodes", [])]
     if not sat_nodes or not ground_nodes:
         sat_nodes, ground_nodes = _infer_nodes_from_steps(steps_payload)
-    return HypatiaScheduleSim(steps=steps_payload, sat_nodes=sat_nodes, ground_nodes=ground_nodes)
+    return HypatiaScheduleSim(
+        steps=steps_payload,
+        sat_nodes=sat_nodes,
+        ground_nodes=ground_nodes,
+        outage_p=outage_p,
+        congestion_p=congestion_p,
+        rng=random.Random(seed),
+    )
