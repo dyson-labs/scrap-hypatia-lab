@@ -63,12 +63,26 @@ The resulting GIF is designed for blog posts / briefings.
 
 ## Backends
 
-By default the code prefers the real CLI-backed implementation on Windows (since the built artifact in
+The SCRAP seam supports multiple backends:
+
+- `stub`: pure-Python fallback (default).
+- `real`: private CLI-backed implementation (Windows + `deps/scap_private`).
+- `tasklib`: Taskwarrior-backed adapter (requires `tasklib`).
+
+By default the code prefers the tasklib implementation if `tasklib` is installed; otherwise it
+prefers the real CLI-backed implementation on Windows (since the built artifact in
 `deps/scap_private` is a `.exe`). Override with:
 
 ```bash
-set SCRAP_BACKEND=stub   # (PowerShell: $env:SCRAP_BACKEND='stub')
+set SCRAP_BACKEND=stub    # (PowerShell: $env:SCRAP_BACKEND='stub')
 set SCRAP_BACKEND=real
+set SCRAP_BACKEND=tasklib
+```
+
+To enable the tasklib adapter, install dependencies:
+
+```bash
+pip install -r requirements.txt
 ```
 
 ## How to hook in real Hypatia
