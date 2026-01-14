@@ -67,7 +67,7 @@ python -c "import hypatia; print(hypatia.__file__)"
 Use the sample config in this repo (edit the ranges/time window if you need more links):
 
 ```bash
-python -m hypatia.cli \
+python -m hypatia.cli generate \
   --config docs/hypatia/sample_config.yaml \
   --output runs/hypatia_schedule.json
 ```
