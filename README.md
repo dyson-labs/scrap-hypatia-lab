@@ -101,6 +101,10 @@ Quick sanity check for the real Hypatia command wrapper:
 python -m sim.experiment_hypatia --hypatia-mode real --hypatia-cmd "python tools/hypatia_cli.py --ping"
 ```
 
+> ⚠️ **Note:** `python tools/hypatia_cli.py --ping` is a connectivity stub and will not generate non-empty edge schedules.
+> For meaningful edges, use the real Hypatia CLI with a config, e.g.
+> `python -m hypatia.cli --config docs/hypatia/sample_config.yaml --output runs/hypatia_schedule.json`.
+
 This prints *headline metrics* that map to the intended "onion-routing-ish" story:
 
 - **avail**: delivered / injected (network availability under outages/congestion)

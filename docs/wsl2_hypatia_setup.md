@@ -72,6 +72,9 @@ python -m hypatia.cli \
   --output runs/hypatia_schedule.json
 ```
 
+> ⚠️ `python tools/hypatia_cli.py --ping` is only a connectivity stub and will not emit non-empty edge schedules.
+> For real edges, use the Hypatia CLI with a config like the command above.
+
 Sanity-check that the schedule contains edges (ISL + ground links) in the first step:
 
 ```bash
