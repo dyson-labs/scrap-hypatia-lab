@@ -50,16 +50,14 @@ This prints *headline metrics* that map to the intended "onion-routing-ish" stor
 - **reach**: completed / jobs (end-to-end feasibility within a deadline)
 - **ttfs_mean / ttfs_p90**: time-to-first-success in **timesteps** (inject → verified receipt)
 
-### Optional: generate an animated GIF
+### Experiment 001 (ISL tasking vs ground-gated baseline)
 
-The experiment can write a JSONL trace suitable for simple animation:
+See `docs/experiments/experiment_001.md` for the full workflow (run, metrics, plots) of
+Experiment 001.
 
-```bash
-python -m sim.experiment_hypatia --trace runs/demo_trace.jsonl
-python -m viz.animate_trace runs/demo_trace.jsonl --out runs/demo.gif
-```
+### Visualization helpers
 
-The resulting GIF is designed for blog posts / briefings.
+Experiment 001 includes visualization helpers documented in `docs/visualization.md`.
 
 ## Backends
 
