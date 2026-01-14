@@ -317,6 +317,8 @@ def main():
             n_ground=args.n_ground,
             steps=args.steps,
             seed=args.seed,
+            outage_p=float(args.outage or 0.0),
+            congestion_p=float(args.congestion or 0.0),
         )
         if args.ground_nodes:
             hypatia_sim.ground_nodes = [node.strip().encode() for node in args.ground_nodes.split(",") if node.strip()]

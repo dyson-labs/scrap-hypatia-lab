@@ -25,6 +25,8 @@ python -m sim.experiment_min
 
 The Option 3 experiment uses `sim/hypatia_stub.py` to stand in for Hypatia so you can land the
 integration plumbing immediately. Once you add real Hypatia, swap the stub out.
+Even in real schedule mode, packet drops from `--outage` and `--congestion` are synthetic
+probability-based events applied at delivery time (they do not come from Hypatia itself).
 
 ```bash
 python -m sim.experiment_hypatia
