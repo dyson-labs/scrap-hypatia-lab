@@ -80,11 +80,92 @@ def run_hypatia_command(
         ) from exc
 
 
+def _coerce_edge(edge: Any) -> Optional[Tuple[str, str]]:
+    if isinstance(edge, (list, tuple)) and len(edge) >= 2:
+        return str(edge[0]), str(edge[1])
+    if isinstance(edge, dict):
+        for a_key, b_key in (
+            ("a", "b"),
+            ("src", "dst"),
+            ("source", "target"),
+            ("u", "v"),
+        ):
+            if a_key in edge and b_key in edge:
+                return str(edge[a_key]), str(edge[b_key])
+    return None
+
+
+def _coerce_edges(value: Any) -> List[Tuple[str, str]]:
+    edges: List[Tuple[str, str]] = []
+    if isinstance(value, dict):
+        for key in ("isl_links", "ground_links", "links", "edges"):
+            if key in value:
+                edges.extend(_coerce_edges(value[key]))
+        return edges
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            edge = _coerce_edge(item)
+            if edge:
+                edges.append(edge)
+            elif isinstance(item, (list, tuple, dict)):
+                edges.extend(_coerce_edges(item))
+        return edges
+    return edges
+
+
+def _normalize_steps(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    steps_payload = payload.get("steps")
+    if steps_payload is None:
+        for key in ("edges", "links", "isl_links", "ground_links"):
+            if key in payload:
+                steps_payload = payload[key]
+                break
+    if steps_payload is None:
+        raise ValueError("Hypatia artifact missing 'steps' field.")
+
+    steps: List[Dict[str, Any]] = []
+    for step in steps_payload:
+        if isinstance(step, dict):
+            edges = step.get("edges")
+            if edges is None:
+                edges = step.get("links")
+            if edges is None:
+                edges = _coerce_edges(step)
+            steps.append({**step, "edges": _coerce_edges(edges)})
+        else:
+            steps.append({"edges": _coerce_edges(step)})
+    return steps
+
+
+def _normalize_nodes(payload: Dict[str, Any], keys: Iterable[str]) -> List[bytes]:
+    for key in keys:
+        nodes = payload.get(key)
+        if nodes:
+            return [str(node).encode() for node in nodes]
+    return []
+
+
 def load_schedule(path: Path) -> Dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    if "steps" not in payload:
-        raise ValueError("Hypatia artifact missing 'steps' field.")
-    return payload
+    steps = _normalize_steps(payload)
+    sat_nodes = _normalize_nodes(
+        payload,
+        ("sat_nodes", "satellites", "satellite_nodes", "satellite_ids", "sats"),
+    )
+    ground_nodes = _normalize_nodes(
+        payload,
+        ("ground_nodes", "ground_stations", "ground_station_nodes", "ground"),
+    )
+    if not sat_nodes or not ground_nodes:
+        inferred_sat, inferred_ground = _infer_nodes_from_steps(steps)
+        sat_nodes = sat_nodes or inferred_sat
+        ground_nodes = ground_nodes or inferred_ground
+    return {
+        **payload,
+        "steps": steps,
+        "sat_nodes": [node.decode() for node in sat_nodes],
+        "ground_nodes": [node.decode() for node in ground_nodes],
+    }
 
 
 def _infer_nodes_from_steps(steps: Iterable[dict]) -> Tuple[List[bytes], List[bytes]]:
