@@ -13,6 +13,54 @@ SCRAP provides authorization/receipts/integrity/confidentiality tradeoffs.
 
 This repo now contains a minimal "seam" that lets you drive SCRAP over a Hypatia-provided model.
 
+## Quick start (new to the repo)
+
+If you just want to run the default Experiment 001 workflow (simulation → metrics → plots → animations),
+follow these steps. You do **not** need Hypatia installed for this path.
+
+1) **Run the simulation (produces JSONL logs):**
+
+```bash
+python -m sim.experiment_isl_tasking
+```
+
+This writes:
+- `runs/modeA.jsonl` (ground-gated baseline)
+- `runs/modeB.jsonl` (ISL-forwarded)
+
+2) **Compute metrics (writes a CSV summary):**
+
+```bash
+python -m analysis.metrics
+```
+
+3) **Generate the summary plot (SVG):**
+
+```bash
+python -m analysis.plot_experiment
+```
+
+4) **Generate animations (GIF/MP4):**
+
+> Note: use the **module** form (`python -m tools.animate_*`) so imports work on Windows.
+
+```bash
+python -m tools.animate_ring --log runs/modeA.jsonl --out runs/anim_ring_modeA.mp4
+python -m tools.animate_ring --log runs/modeB.jsonl --out runs/anim_ring_modeB.mp4
+python -m tools.animate_orbit --log runs/modeA.jsonl --out runs/anim_orbit_modeA.mp4
+python -m tools.animate_orbit --log runs/modeB.jsonl --out runs/anim_orbit_modeB.mp4
+```
+
+Animations require:
+- `matplotlib` and `pillow` (Python packages)
+- `ffmpeg` (optional, for MP4; without it, GIFs are generated)
+
+If you want a full “stress” run (max attack/outage/congestion):
+
+```bash
+python -m sim.experiment_isl_tasking --attack-p 1.0 --outage-p 1.0 --congestion-p 1.0
+```
+
 ## Running the experiments
 
 ### Option 2 (toy graph + explicit tamper model)
