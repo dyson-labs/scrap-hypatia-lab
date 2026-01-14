@@ -32,22 +32,9 @@ def _parse_cmd(cmd: Optional[str]) -> Optional[List[str]]:
     return shlex.split(cmd)
 
 
-def _module_available(module_name: str) -> bool:
-    try:
-        __import__(module_name)
-        return True
-    except Exception:
-        return False
-
-
 def hypatia_cmd_available(cmd: Optional[str]) -> bool:
     parts = _parse_cmd(cmd)
     if not parts:
-        return False
-    if parts[0] == "python" and "-m" in parts:
-        idx = parts.index("-m")
-        if idx + 1 < len(parts):
-            return _module_available(parts[idx + 1])
         return False
     return shutil.which(parts[0]) is not None
 
@@ -81,14 +68,15 @@ def run_hypatia_command(
             str(seed),
         ]
     )
-    result = subprocess.run(full_cmd, check=False, capture_output=True, text=True)
-    if result.returncode != 0:
+    try:
+        subprocess.run(full_cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
         raise RuntimeError(
             "Hypatia command failed.\n"
             f"Command: {' '.join(full_cmd)}\n"
-            f"stdout:\n{result.stdout}\n"
-            f"stderr:\n{result.stderr}"
-        )
+            f"stdout:\n{exc.stdout}\n"
+            f"stderr:\n{exc.stderr}"
+        ) from exc
 
 
 def load_schedule(path: Path) -> Dict[str, Any]:

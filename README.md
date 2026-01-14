@@ -37,6 +37,12 @@ export HYPATIA_CMD="python -m hypatia.cli"
 python -m sim.experiment_hypatia --hypatia-mode real --hypatia-cmd "$HYPATIA_CMD"
 ```
 
+Quick sanity check for the real Hypatia command wrapper:
+
+```bash
+python -m sim.experiment_hypatia --hypatia-mode real --hypatia-cmd "python tools/hypatia_cli.py --ping"
+```
+
 This prints *headline metrics* that map to the intended "onion-routing-ish" story:
 
 - **avail**: delivered / injected (network availability under outages/congestion)
