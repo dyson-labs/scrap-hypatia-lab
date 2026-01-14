@@ -20,6 +20,7 @@ source "${VENV_PATH}/bin/activate"
 
 echo "==> Installing Python tools"
 pip install --upgrade pip setuptools wheel pytest
+pip install -r "${ROOT_DIR}/requirements.txt"
 
 if [[ ! -d "${HYPATIA_DIR}" ]]; then
   echo "==> Cloning Hypatia to ${HYPATIA_DIR}"
