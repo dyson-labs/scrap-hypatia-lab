@@ -87,6 +87,14 @@ export HYPATIA_CMD="python -m hypatia.cli"
 python -m sim.experiment_hypatia --hypatia-mode real --hypatia-cmd "$HYPATIA_CMD"
 ```
 
+If you already generated a schedule artifact, point the experiment directly at it:
+
+```bash
+python -m sim.experiment_hypatia \
+  --hypatia-mode real \
+  --hypatia-artifact runs/hypatia_schedule.json
+```
+
 Quick sanity check for the real Hypatia command wrapper:
 
 ```bash

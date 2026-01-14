@@ -62,24 +62,46 @@ pip install -e deps/hypatia
 python -c "import hypatia; print(hypatia.__file__)"
 ```
 
-## 8) Run this repo in stub mode
+## 8) Generate a Hypatia schedule artifact
+
+Use the sample config in this repo (edit the ranges/time window if you need more links):
+
+```bash
+python -m hypatia.cli \
+  --config docs/hypatia/sample_config.yaml \
+  --output runs/hypatia_schedule.json
+```
+
+Sanity-check that the schedule contains edges (ISL + ground links) in the first step:
+
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
+
+schedule = json.loads(Path("runs/hypatia_schedule.json").read_text())
+first_edges = schedule["steps"][0]["edges"]
+print(f"edges in step 0: {len(first_edges)}")
+PY
+```
+
+## 9) Run this repo in stub mode
 
 ```bash
 SCRAP_BACKEND=stub python -m sim.experiment_hypatia
 ```
 
-## 9) Run this repo in real Hypatia mode
+## 10) Run this repo in real Hypatia mode
 
-Assuming Hypatia exposes a CLI that can write a connectivity schedule:
+Point the experiment at the generated schedule:
 
 ```bash
-export HYPATIA_CMD="python -m hypatia.cli"
 python -m sim.experiment_hypatia \
   --hypatia-mode real \
-  --hypatia-cmd "$HYPATIA_CMD" \
-  --n-sats 10 \
-  --n-ground 2 \
-  --steps 5
+  --hypatia-artifact runs/hypatia_schedule.json \
+  --n-sats 24 \
+  --n-ground 3 \
+  --steps 30
 ```
 
 The command must emit a JSON artifact with a `steps` array (see `sim/hypatia_real.py` for schema).

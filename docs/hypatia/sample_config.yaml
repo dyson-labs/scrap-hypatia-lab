@@ -1,0 +1,40 @@
+# Sample Hypatia config for generating a non-empty schedule (ISL + ground links).
+# Values align with the Hypatia schema: time_window, constellations, ground_stations, links.
+# Adjust ranges/durations as needed for your environment.
+
+time_window:
+  start: "2024-01-01T00:00:00Z"
+  end: "2024-01-01T00:30:00Z"
+  step_s: 60
+
+constellations:
+  - name: demo-walker
+    type: walker
+    altitude_km: 550
+    inclination_deg: 53
+    planes: 3
+    sats_per_plane: 8
+    phasing: 1
+    isl:
+      intra_plane: true
+      inter_plane: true
+
+# Explicit ground stations used for ground link generation.
+ground_stations:
+  - id: sea-gs
+    lat_deg: 47.6062
+    lon_deg: -122.3321
+    alt_m: 10
+  - id: tokyo-gs
+    lat_deg: 35.6762
+    lon_deg: 139.6503
+    alt_m: 40
+  - id: sydney-gs
+    lat_deg: -33.8688
+    lon_deg: 151.2093
+    alt_m: 5
+
+# Link budgets/ranges (tune to ensure ISL + ground links appear).
+links:
+  isl_max_range_km: 3000
+  ground_max_range_km: 2500
