@@ -1,4 +1,7 @@
-﻿from adapters.scrap_backend import get_backend
+"""Sanity check for the configured SCRAP backend."""
+
+from adapters.scrap_backend import get_backend
+
 
 def main():
     scrap = get_backend()

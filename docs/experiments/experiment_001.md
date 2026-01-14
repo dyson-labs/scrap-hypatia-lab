@@ -22,6 +22,12 @@ This writes:
 - `runs/modeA.jsonl` (ground-gated baseline)
 - `runs/modeB.jsonl` (ISL-forwarded with restricted capability token)
 
+Optional stress knobs (set to 1.0 for “full”):
+
+```bash
+python -m sim.experiment_isl_tasking --attack-p 1.0 --outage-p 1.0 --congestion-p 1.0
+```
+
 ## Compute metrics
 
 ```bash
