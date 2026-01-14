@@ -12,8 +12,8 @@ constellations:
     type: walker
     altitude_km: 550
     inclination_deg: 53
-    planes: 3
-    sats_per_plane: 8
+    planes: 6
+    sats_per_plane: 12
     phasing: 1
     isl:
       intra_plane: true
@@ -36,5 +36,6 @@ ground_stations:
 
 # Link budgets/ranges (tune to ensure ISL + ground links appear).
 links:
-  isl_max_range_km: 3000
-  ground_max_range_km: 2500
+  # With the larger constellation and ranges below, expect steps[0].edges to be non-empty.
+  isl_max_range_km: 8000
+  ground_max_range_km: 5000
