@@ -7,8 +7,6 @@ can:
 
 1) Embed SCRAP into a time-varying network boundary (Option 3)
 2) Measure *headline routing metrics* (reachability, TTFS) in addition to integrity
-3) Generate a trace for simple animated visualization
-
 Surface area (what HypatiaTransport needs):
 
 - inject_packet(packet)

@@ -1,3 +1,0 @@
-[submodule "vendor/tasklib"]
-	path = vendor/tasklib
-	url = https://github.com/dyson-labs-org/tasklib.git
