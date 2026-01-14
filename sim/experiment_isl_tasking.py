@@ -118,6 +118,9 @@ def run_mode(
     n_ground: int,
     max_hops: int,
     radius: float,
+    attack_p: float,
+    outage_p: float,
+    congestion_p: float,
     output_path: Path,
 ) -> None:
     rng = random.Random(seed)
@@ -147,10 +150,25 @@ def run_mode(
             pending[task.task_id] = task
             if mode == "isl":
                 token = token_provider.issue(task, max_hops=max_hops, radius=radius)
+                if attack_p > 0 and rng.random() < attack_p:
+                    token_bytes = bytearray(token)
+                    if token_bytes:
+                        idx = rng.randrange(len(token_bytes))
+                        token_bytes[idx] ^= 0x01
+                        token = bytes(token_bytes)
                 tokens[task.task_id] = token
                 _write_event(handle, step, "token_issued", task_id=task.task_id)
 
             edges = hypatia.get_active_links()
+            if outage_p > 0 or congestion_p > 0:
+                filtered = []
+                for edge in edges:
+                    if outage_p > 0 and rng.random() < outage_p:
+                        continue
+                    if congestion_p > 0 and rng.random() < congestion_p:
+                        continue
+                    filtered.append(edge)
+                edges = filtered
             edges = [(a.encode(), b.encode()) for a, b in edges]
             ground_contacts = [edge for edge in edges if b"ground" in edge[0] or b"ground" in edge[1]]
             sat_positions = hypatia.get_node_positions()
@@ -281,6 +299,9 @@ def main() -> None:
     ap.add_argument("--max-hops", type=int, default=4)
     ap.add_argument("--radius", type=float, default=2.0)
     ap.add_argument("--out-dir", type=str, default="runs")
+    ap.add_argument("--attack-p", type=float, default=0.0)
+    ap.add_argument("--outage-p", type=float, default=0.0)
+    ap.add_argument("--congestion-p", type=float, default=0.0)
     args = ap.parse_args()
 
     out_dir = Path(args.out_dir)
@@ -293,6 +314,9 @@ def main() -> None:
         n_ground=args.n_ground,
         max_hops=args.max_hops,
         radius=args.radius,
+        attack_p=args.attack_p,
+        outage_p=args.outage_p,
+        congestion_p=args.congestion_p,
         output_path=out_dir / "modeA.jsonl",
     )
     run_mode(
@@ -304,6 +328,9 @@ def main() -> None:
         n_ground=args.n_ground,
         max_hops=args.max_hops,
         radius=args.radius,
+        attack_p=args.attack_p,
+        outage_p=args.outage_p,
+        congestion_p=args.congestion_p,
         output_path=out_dir / "modeB.jsonl",
     )
 
